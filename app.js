@@ -1,7 +1,9 @@
+require('dotenv').config();
 // Require packages
 const express = require('express');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
+const encrypt = require("mongoose-encryption");
 const ejs = require('ejs');
 
 // Create the app
@@ -20,10 +22,13 @@ app.use(bodyParser.urlencoded({extended: true}));
 mongoose.connect("mongodb://127.0.0.1:27017/userDB");
 
 // Create a schema for articles
-const userSchema = {
+const userSchema = new mongoose.Schema({
   email: String,
   password: String
-};
+});
+
+// Add encyption to the schema, Before creating the Model
+userSchema.plugin(encrypt,{ secret: process.env.SECRET_KEY, encryptedFields: ["password"]});
 
 const User = new mongoose.model("User", userSchema);
 
