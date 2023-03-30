@@ -3,7 +3,10 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const encrypt = require("mongoose-encryption");
+// Level 2 encryption with secret_keys
+// const encrypt = require("mongoose-encryption");
+// Level 3 encryption with hashing
+const md5 = require('md5');
 const ejs = require('ejs');
 
 // Create the app
@@ -27,8 +30,7 @@ const userSchema = new mongoose.Schema({
   password: String
 });
 
-// Add encyption to the schema, Before creating the Model
-userSchema.plugin(encrypt,{ secret: process.env.SECRET_KEY, encryptedFields: ["password"]});
+
 
 const User = new mongoose.model("User", userSchema);
 
@@ -39,6 +41,21 @@ app.get("/", function(req, res){
 
 app.get("/register", function(req, res){
     res.render("register");
+});
+
+app.post("/register", async function(req, res) {
+  try {
+    const newUser = new User({
+      email: req.body.username,
+      password: md5(req.body.password) // Turn password into a hash
+    });
+    const savedUser = await newUser.save();
+    if (savedUser) {
+      res.render("secrets");
+    }
+  } catch (err) {
+    console.error(err);
+  }
 });
 
 app.route("/login")
@@ -54,7 +71,7 @@ app.route("/login")
           // User not found in the database
           return res.render("login", { error: "Invalid email or password" });
         }
-        const passwordMatch = await User.findOne({password: req.body.password});
+        const passwordMatch = await User.findOne({password: md5(req.body.password)});
         if (!passwordMatch) {
           // Password does not match
           return res.render("login", { error: "Invalid email or password" });
@@ -69,20 +86,7 @@ app.route("/login")
 });
 
 
-app.post("/register", async function(req, res) {
-    try {
-      const newUser = new User({
-        email: req.body.username,
-        password: req.body.password
-      });
-      const savedUser = await newUser.save();
-      if (savedUser) {
-        res.render("secrets");
-      }
-    } catch (err) {
-      console.error(err);
-    }
-});
+
 
 
 
