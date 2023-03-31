@@ -3,16 +3,13 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-// Level 2 encryption with secret_keys
-// const encrypt = require("mongoose-encryption");
-// Level 3 encryption with hashing
-// const md5 = require('md5');
-
-// Level 4 encryption with bycrypt
-const bcrypt = require('bcrypt');
-// create 10 salt rounds
-const saltRounds = 10;
-const ejs = require('ejs');
+// Level 5 Using passport package
+// require express-session
+const session = require('express-session');
+// require passport
+const passport = require('passport');
+// require passport-local-mongoose
+const passportLocalMongoose = require('passport-local-mongoose');
 
 // Create the app
 const app = express();
@@ -25,6 +22,20 @@ app.use(express.static("public"));
 // Set up body-parser
 app.use(bodyParser.urlencoded({extended: true}));
 
+// Set up express-session
+app.use(session({
+  // Use a secret key
+  secret: process.env.SECRET,
+  resave: false,
+  saveUninitialized: false
+}));
+
+// Initialize passport
+app.use(passport.initialize());
+// Use passport to manage the session
+app.use(passport.session());
+
+
 
 // Connect to the MongoDB database
 mongoose.connect("mongodb://127.0.0.1:27017/userDB");
@@ -35,13 +46,33 @@ const userSchema = new mongoose.Schema({
   password: String
 });
 
+// Add passportLocalMongoose to the userSchema as a plugin
+userSchema.plugin(passportLocalMongoose);
 
 
 const User = new mongoose.model("User", userSchema);
 
+// Create a new user with passport-local-mongoose
+passport.use(User.createStrategy());
+
+// Serialize and deserialize the user
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+
+
 
 app.get("/", function(req, res){
     res.render("home");
+});
+
+// create a route for the secrets page
+app.get("/secrets", function(req, res){
+  // check if the user is authenticated
+  if (req.isAuthenticated()){
+    res.render("secrets"); 
+  } else {
+    res.redirect("/login");
+  }
 });
 
 app.get("/register", function(req, res){
@@ -50,24 +81,22 @@ app.get("/register", function(req, res){
 
 app.post("/register", async function(req, res) {
 
-
   try {
-    // Create a bycrypt.hash() method to hash the password
-    const hash = await bcrypt.hash(req.body.password, saltRounds);
-
-    const newUser = new User({
-      email: req.body.username,
-      // hash the password
-      password: hash
-
-    });
-    const savedUser = await newUser.save();
-    if (savedUser) {
-      res.render("secrets");
-    }
+    // Create a new user with passport-local-mongoose
+    const newUser = await User.register({username: req.body.username}, req.body.password);
+    // check if the user is created
+    if (newUser) {
+      // Authenticate the user
+      passport.authenticate("local")(req, res, function(){
+        res.redirect("/secrets");
+      });
+    } else {
+      res.send("User not created");
+    };
   } catch (err) {
-    console.error(err);
-  };
+    res.send(err);
+  }
+  
 });
 
 app.route("/login")
@@ -76,28 +105,36 @@ app.route("/login")
     res.render("login");
 })
 
-.post(async function(req, res){
-    try {
-        const user = await User.findOne({ email: req.body.username });
-        console.log("User:", user);
-        if (!user) {
-          // User not found in the database
-          return res.render("login", { error: "Invalid email or password" });
+.post(function(req, res){
+    // Create a user
+    const user = new User({
+        username: req.body.username,
+        password: req.body.password
+    });
+
+    // Use passport to login the user
+    req.login(user, function(err){
+        if (err){
+            console.log(err);
+        } else {
+            // Authenticate the user
+            passport.authenticate("local")(req, res, function(){
+                res.redirect("/secrets");
+            });
         }
-        // Use bycrypt.compare() to compare the password
-        const passwordMatch = await bcrypt.compare(req.body.password, user.password);
-        console.log(passwordMatch);
-        if (!passwordMatch) {
-          // Password does not match
-          return res.render("login", { error: "Invalid email or password" });
-        }
-        // Email and password match, set session and redirect to secrets
-        // req.session.user = user;
-        res.render("secrets");
-      } catch (err) {
-        console.error(err);
-        res.render("error", { error: "An error occurred" });
-      }
+    });
+});
+
+// Create a route for the logout
+app.get("/logout", function(req, res){
+    // Use passport to logout the user
+    // add a callback function to logout
+    req.logout(function(err){
+      if (err){
+        console.log(err);
+      } else {
+        res.redirect("/");
+      }});
 });
 
 
