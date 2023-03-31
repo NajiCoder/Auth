@@ -6,7 +6,12 @@ const mongoose = require('mongoose');
 // Level 2 encryption with secret_keys
 // const encrypt = require("mongoose-encryption");
 // Level 3 encryption with hashing
-const md5 = require('md5');
+// const md5 = require('md5');
+
+// Level 4 encryption with bycrypt
+const bcrypt = require('bcrypt');
+// create 10 salt rounds
+const saltRounds = 10;
 const ejs = require('ejs');
 
 // Create the app
@@ -44,10 +49,17 @@ app.get("/register", function(req, res){
 });
 
 app.post("/register", async function(req, res) {
+
+
   try {
+    // Create a bycrypt.hash() method to hash the password
+    const hash = await bcrypt.hash(req.body.password, saltRounds);
+
     const newUser = new User({
       email: req.body.username,
-      password: md5(req.body.password) // Turn password into a hash
+      // hash the password
+      password: hash
+
     });
     const savedUser = await newUser.save();
     if (savedUser) {
@@ -55,7 +67,7 @@ app.post("/register", async function(req, res) {
     }
   } catch (err) {
     console.error(err);
-  }
+  };
 });
 
 app.route("/login")
@@ -66,12 +78,15 @@ app.route("/login")
 
 .post(async function(req, res){
     try {
-        const user = await User.findOne({ email: req.body.email });
+        const user = await User.findOne({ email: req.body.username });
+        console.log("User:", user);
         if (!user) {
           // User not found in the database
           return res.render("login", { error: "Invalid email or password" });
         }
-        const passwordMatch = await User.findOne({password: md5(req.body.password)});
+        // Use bycrypt.compare() to compare the password
+        const passwordMatch = await bcrypt.compare(req.body.password, user.password);
+        console.log(passwordMatch);
         if (!passwordMatch) {
           // Password does not match
           return res.render("login", { error: "Invalid email or password" });
@@ -84,10 +99,6 @@ app.route("/login")
         res.render("error", { error: "An error occurred" });
       }
 });
-
-
-
-
 
 
 app.listen(3000, function(){
