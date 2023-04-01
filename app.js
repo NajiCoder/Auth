@@ -10,6 +10,11 @@ const session = require('express-session');
 const passport = require('passport');
 // require passport-local-mongoose
 const passportLocalMongoose = require('passport-local-mongoose');
+// require mongoose-findorcreate
+const findOrCreate = require('mongoose-findorcreate');
+// Level 6 Using passport-google-oauth20 package
+// require google-oauth20
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 
 // Create the app
 const app = express();
@@ -43,11 +48,17 @@ mongoose.connect("mongodb://127.0.0.1:27017/userDB");
 // Create a schema for articles
 const userSchema = new mongoose.Schema({
   email: String,
-  password: String
+  password: String,
+  // add googleId to the userSchema
+  googleId: String,
+  // Add scret field 
+  secret : String,
 });
 
 // Add passportLocalMongoose to the userSchema as a plugin
 userSchema.plugin(passportLocalMongoose);
+// Add mongoose-findorcreate to the userSchema as a plugin
+userSchema.plugin(findOrCreate);
 
 
 const User = new mongoose.model("User", userSchema);
@@ -55,24 +66,90 @@ const User = new mongoose.model("User", userSchema);
 // Create a new user with passport-local-mongoose
 passport.use(User.createStrategy());
 
-// Serialize and deserialize the user
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+// change from local authentication to any authentication
+// Serialize and deserialize the user with passport
+passport.serializeUser(function(user, done) {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async function(id, done) {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (error) {
+    done(error);
+  }
+});
 
 
+// set app google strategy, after setting up passport and session
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_sSECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    console.log(profile);
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    }); 
+  } 
+));
 
 app.get("/", function(req, res){
     res.render("home");
 });
 
+// Create a route for the auth/google
+app.get("/auth/google", passport.authenticate("google", {scope: ["profile"]})); // authenticate with google strategy
+
+// Create a route for the auth/google/secrets
+app.get("/auth/google/secrets", passport.authenticate("google", {failureRedirect: "/login"}), function(req, res){
+  // Successful authentication, redirect to secrets.
+  res.redirect("/secrets");
+});
+
+
 // create a route for the secrets page
-app.get("/secrets", function(req, res){
+app.get("/secrets", async function(req, res){
+
+  try {
+    // Check the Db to and check all secrets fields
+  const foundUsersSecrets = await User.find({"secret": {$ne:null}});
+  if (foundUsersSecrets){
+    res.render("secrets", {userWithSecrets : foundUsersSecrets});
+  };
+  } catch (err) {
+    res.send(err);
+  };
+  
+});
+
+// Create a route for the submit page
+app.route("/submit")
+
+.get(function(req, res){
   // check if the user is authenticated
   if (req.isAuthenticated()){
-    res.render("secrets"); 
+    res.render("submit");
   } else {
     res.redirect("/login");
   }
+})
+
+.post(async function(req, res){
+  const submitedSecret = req.body.secret;
+  const currentUser = req.user
+
+  const foundUser = await User.findById(currentUser.id);
+  if (foundUser){
+    foundUser.secret = submitedSecret;
+    await foundUser.save();
+    res.redirect("/secrets");
+  }
+
+  console.log(req.user);
 });
 
 app.get("/register", function(req, res){
@@ -87,7 +164,7 @@ app.post("/register", async function(req, res) {
     // check if the user is created
     if (newUser) {
       // Authenticate the user
-      passport.authenticate("local")(req, res, function(){
+      passport.authenticate("local")(req, res, function(){ // authenticate with local strategy
         res.redirect("/secrets");
       });
     } else {
